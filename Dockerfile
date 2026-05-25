@@ -24,10 +24,6 @@ RUN pip install --upgrade pip && \
 
 # Copy app source
 COPY src/ /app/src/
-COPY pyproject.toml .
-
-# Install the sdk package itself (for metaai-sdk imports)
-RUN pip install --no-cache-dir -e .
 
 # Create data directory
 RUN mkdir -p /data/uploads /data/generations
