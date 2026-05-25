@@ -314,9 +314,12 @@ body {
       <span class="badge" id="historyBadge" style="display:none">0</span>
     </button>
   </nav>
-  <div class="sidebar-footer">
-    <span class="status-dot pending" id="statusDot"></span>
-    <span id="statusText">Connecting...</span>
+  <div class="sidebar-footer" style="flex-direction:column;align-items:stretch;gap:6px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="status-dot pending" id="statusDot"></span>
+      <span id="statusText" style="flex:1">Connecting...</span>
+    </div>
+    <button class="btn btn-sm btn-secondary" onclick="doLogout()" id="logoutBtn" style="display:none">Logout</button>
   </div>
 </aside>
 
@@ -460,6 +463,17 @@ body {
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
+// Auth check on load
+(async function() {
+  try {
+    const res = await fetch('/api/auth/check');
+    const data = await res.json();
+    if (data.auth_enabled && !data.authenticated) {
+      window.location.href = '/static/login.html';
+    }
+  } catch {}
+})();
+
 // State
 let cookieVisible = false;
 let selectedFile = null;
@@ -521,6 +535,16 @@ function setStatus(ok, msg) {
   const txt = document.getElementById('statusText');
   dot.className = `status-dot ${ok ? 'online' : 'offline'}`;
   txt.textContent = msg;
+}
+
+// Show logout button when auth is enabled
+fetch('/api/auth/check').then(r => r.json()).then(d => {
+  if (d.auth_enabled) document.getElementById('logoutBtn').style.display = '';
+}).catch(() => {});
+
+async function doLogout() {
+  await api('/api/logout', { method: 'POST' });
+  window.location.href = '/static/login.html';
 }
 
 // ==================== DASHBOARD ====================

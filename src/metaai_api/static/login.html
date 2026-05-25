@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaAI Manager - Login</title>
+<style>
+:root {
+  --bg: #0f0f0f;
+  --card: #1e1e24;
+  --primary: #7c5cfc;
+  --primary-dim: #5a3fc7;
+  --text: #e4e4e7;
+  --text-dim: #888890;
+  --border: #2a2a32;
+  --error: #ef4444;
+  --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; font-size: 14px;
+}
+.login-box {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 32px;
+  width: 360px; max-width: 90vw;
+}
+.logo {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 24px;
+}
+.logo svg { width: 28px; height: 28px; color: var(--primary); }
+.logo h1 { font-size: 18px; font-weight: 600; }
+.logo span { color: var(--text-dim); font-size: 12px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; color: var(--text-dim); }
+.form-group input {
+  width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 14px; outline: none;
+  font-family: inherit; transition: border .15s;
+}
+.form-group input:focus { border-color: var(--primary); }
+.btn {
+  width: 100%; padding: 10px; border-radius: 6px; font-size: 14px; font-weight: 500;
+  cursor: pointer; border: none; background: var(--primary); color: #fff;
+  transition: background .15s; font-family: inherit;
+}
+.btn:hover { background: var(--primary-dim); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.error { color: var(--error); font-size: 13px; margin-top: 8px; display: none; }
+.spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 014 4c0 2-2 4-4 4s-4-2-4-4 2-4 4-4z"/><path d="M4 22v-2a4 4 0 014-4h8a4 4 0 014 4v2"/></svg>
+    <div><h1>MetaAI Manager</h1><span>Admin Login</span></div>
+  </div>
+  <form id="loginForm" onsubmit="doLogin(event)">
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="username" value="admin" autocomplete="username" required>
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn" id="loginBtn">Sign In</button>
+    <div class="error" id="errorMsg">Invalid credentials</div>
+  </form>
+</div>
+<script>
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('errorMsg');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Signing in...';
+  err.style.display = 'none';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value
+      })
+    });
+    if (!res.ok) throw new Error('Invalid credentials');
+    window.location.href = '/';
+  } catch (e) {
+    err.textContent = e.message;
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = 'Sign In';
+  }
+}
+
+// Pre-check if auth is disabled
+fetch('/api/auth/check').then(r => r.json()).then(d => {
+  if (d.authenticated) window.location.href = '/';
+  if (!d.auth_enabled) window.location.href = '/';
+}).catch(() => {});
+</script>
+</body>
+</html>

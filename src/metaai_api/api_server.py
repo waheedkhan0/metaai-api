@@ -12,9 +12,11 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
 import time as time_module
 
 from metaai_api import MetaAI
@@ -27,6 +29,12 @@ env_path = Path(__file__).parent.parent.parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
     logger.info(f"Loaded environment variables from {env_path}")
+
+# ── Admin auth config ──────────────────────────────────────────────
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+SESSION_SECRET = os.getenv("SESSION_SECRET", os.urandom(24).hex())
+logger.info(f"Admin user: {ADMIN_USERNAME} (password {'SET' if ADMIN_PASSWORD else 'NOT SET - auth disabled'})")
 
 # Refresh interval (seconds) for keeping lsd/fb_dtsg/cookies fresh
 DEFAULT_REFRESH_SECONDS = 3600
@@ -114,10 +122,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Session middleware for admin auth
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400)
+
 # Serve static UI files
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
+
+# ── Admin auth middleware ──────────────────────────────────────────
+PUBLIC_PATHS = {"/healthz", "/api/login", "/api/logout", "/api/auth/check", "/static/login.html", "/static/", "/favicon.ico"}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if ADMIN_PASSWORD:
+        path = request.url.path.rstrip("/") or "/"
+        is_public = path in PUBLIC_PATHS
+        is_static_login = path == "/static/login.html"
+        is_api_public = path.startswith("/api/") and path in {
+            "/api/login", "/api/logout", "/api/auth/check"
+        }
+        if is_static_login or is_api_public or is_public:
+            return await call_next(request)
+        if not request.session.get("authenticated"):
+            if path.startswith("/api/"):
+                return JSONResponse(status_code=401, content={"error": "Authentication required"})
+            return RedirectResponse(url="/static/login.html")
+    return await call_next(request)
+
+
+# ── Admin auth endpoints ───────────────────────────────────────────
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+async def login(request: Request, body: LoginRequest):
+    if not ADMIN_PASSWORD:
+        request.session["authenticated"] = True
+        request.session["username"] = "admin"
+        return {"success": True}
+    if body.username == ADMIN_USERNAME and body.password == ADMIN_PASSWORD:
+        request.session["authenticated"] = True
+        request.session["username"] = body.username
+        return {"success": True}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/api/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return {"success": True}
+
+
+@app.get("/api/auth/check")
+async def auth_check(request: Request):
+    return {
+        "authenticated": request.session.get("authenticated", False),
+        "username": request.session.get("username"),
+        "auth_enabled": bool(ADMIN_PASSWORD),
+    }
 
 # Exception handler for unhandled exceptions - returns JSON
 @app.exception_handler(Exception)
@@ -271,8 +337,9 @@ async def get_cookies() -> Dict[str, str]:
 
 
 @app.get("/")
-async def root():
-    from fastapi.responses import RedirectResponse
+async def root(request: Request):
+    if ADMIN_PASSWORD and not request.session.get("authenticated"):
+        return RedirectResponse(url="/static/login.html")
     return RedirectResponse(url="/static/index.html")
 
 
