@@ -371,10 +371,24 @@ body {
     <div class="card-title">Update Cookies</div>
     <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Paste updated cookie values. These will be saved and used for authentication.</p>
     <div class="form-group">
-      <label>Cookie JSON</label>
+      <label>Cookie JSON (key-value pairs)</label>
       <textarea id="cookieInput" rows="6" placeholder='{"datr": "...", "ecto_1_sess": "...", "abra_sess": "..."}'></textarea>
     </div>
     <button class="btn btn-primary" onclick="saveCookies()">Save & Reload Cookies</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Import from Chrome Extension</div>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px">
+      Export cookies from your browser extension (e.g. EditThisCookie, Cookie-Editor) as JSON array and paste below.
+      Only <strong>.meta.ai</strong> domain cookies will be imported. The access token will also be auto-extracted.
+    </p>
+    <div class="form-group">
+      <label>Chrome Cookie JSON Array</label>
+      <textarea id="chromeCookieInput" rows="8" placeholder='[{"domain":".meta.ai","name":"datr","value":"...","httpOnly":true,"secure":true,"sameSite":"lax"},...]'></textarea>
+    </div>
+    <div id="cookieImportStatus" style="display:none;margin-bottom:8px;font-size:13px"></div>
+    <button class="btn btn-primary" onclick="importChromeCookies()">Import & Apply</button>
   </div>
 </div>
 
@@ -695,6 +709,44 @@ async function refreshCookies() {
     loadCookies();
   } catch (e) {
     toast(`Refresh failed: ${e.message}`, 'error');
+  }
+}
+
+async function importChromeCookies() {
+  const status = document.getElementById('cookieImportStatus');
+  status.style.display = 'none';
+  try {
+    const raw = document.getElementById('chromeCookieInput').value.trim();
+    if (!raw) { toast('Paste cookie JSON first', 'error'); return; }
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const metaCookies = {};
+    let count = 0;
+    for (const entry of arr) {
+      if (entry.domain && entry.domain.includes('.meta.ai') && entry.name && entry.value) {
+        metaCookies[entry.name] = entry.value;
+        count++;
+      }
+    }
+    if (count === 0) {
+      toast('No .meta.ai cookies found in the JSON', 'error');
+      return;
+    }
+    await api('/api/cookies/import', {
+      method: 'POST',
+      body: JSON.stringify({ cookies: metaCookies })
+    });
+    status.style.display = 'block';
+    status.innerHTML = `✅ Imported <strong>${count}</strong> cookies from .meta.ai domain. Access token and doc_ids refreshed.`;
+    status.style.color = 'var(--success)';
+    toast(`Imported ${count} cookies successfully`, 'success');
+    loadCookies();
+    loadDashboard();
+  } catch (e) {
+    status.style.display = 'block';
+    status.innerHTML = `❌ Import failed: ${e.message}`;
+    status.style.color = 'var(--error)';
+    toast(`Import failed: ${e.message}`, 'error');
   }
 }
 

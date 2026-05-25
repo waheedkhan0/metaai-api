@@ -358,6 +358,42 @@ async def refresh_cookies_endpoint():
     return {"success": True, "message": "Cookies refreshed"}
 
 
+class CookieImportRequest(BaseModel):
+    cookies: Dict[str, str]
+
+
+@app.post("/api/cookies/import")
+async def import_cookies(body: CookieImportRequest):
+    global _meta_ai_instance
+    new_cookies = body.cookies
+    async with cache._lock:
+        cache._cookies = dict(new_cookies)
+        cache._last_refresh = 0.0
+    logger.info(f"Imported {len(new_cookies)} cookies via Chrome extension format")
+    try:
+        _meta_ai_instance = MetaAI(cookies=new_cookies, proxy=_get_proxies())
+        token = _meta_ai_instance.access_token
+        has_token = bool(token)
+        if has_token:
+            logger.info(f"Access token auto-extracted: {token[:50]}...")
+        if hasattr(_meta_ai_instance, "generation_api"):
+            _apply_config_to_meta_ai()
+        return {
+            "success": True,
+            "cookies_imported": len(new_cookies),
+            "access_token_extracted": has_token,
+            "message": f"Imported {len(new_cookies)} cookies" + (", access token extracted" if has_token else ""),
+        }
+    except Exception as exc:
+        logger.error(f"MetaAI re-init after cookie import failed: {exc}")
+        return {
+            "success": True,
+            "cookies_imported": len(new_cookies),
+            "access_token_extracted": False,
+            "message": f"Cookies saved but MetaAI init failed: {exc}",
+        }
+
+
 @app.get("/api/uploads")
 async def list_uploads():
     return {"uploads": db.get_uploads()}
