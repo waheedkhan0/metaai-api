@@ -131,12 +131,14 @@ class GenerationAPI:
 
             if len(unique) >= 1:
                 newest = unique[0]
-                for key in ("TEXT_TO_IMAGE", "TEXT_TO_VIDEO"):
-                    old = self._doc_ids.get(key)
-                    if old and old != newest:
-                        self._doc_ids[key] = newest
-                        self._doc_id_sources[key] = "page_extract"
-                        self.logger.info(f"doc_id[{key}] updated from page: {old} → {newest}")
+                # Do not auto-override primary generation doc_ids from generic page HTML.
+                # The page contains multiple experiment/stale doc_ids that can reference
+                # GraphQL schemas with mismatched input types (for example rewriteOptions).
+                # Keep stable defaults/env overrides unless explicitly configured.
+                self.logger.debug(
+                    "Skipping auto-override for TEXT_TO_IMAGE/TEXT_TO_VIDEO doc_ids from page extract candidate: %s",
+                    newest,
+                )
 
                 if len(unique) >= 2:
                     alt = unique[1]
