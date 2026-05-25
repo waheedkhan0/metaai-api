@@ -143,42 +143,28 @@ class GenerationAPI:
 
             doc_id_pattern = re.compile(r'["\']doc_id["\']\s*:\s*["\']([a-f0-9]{32})["\']', re.IGNORECASE)
             found = doc_id_pattern.findall(text)
-            unique = list(dict.fromkeys(found))
+            unique = list(dict.fromkeys(found))  # deduplicate preserving order
 
-            if not unique:
-                self.logger.info("No doc_ids found on meta.ai page")
-                return
+            if len(unique) >= 1:
+                newest = unique[0]
+                # Do not auto-override primary generation doc_ids from generic page HTML.
+                # The page contains multiple experiment/stale doc_ids that can reference
+                # GraphQL schemas with mismatched input types (for example rewriteOptions).
+                # Keep stable defaults/env overrides unless explicitly configured.
+                self.logger.debug(
+                    "Skipping auto-override for TEXT_TO_IMAGE/TEXT_TO_VIDEO doc_ids from page extract candidate: %s",
+                    newest,
+                )
 
-            self.logger.info(f"Found {len(unique)} unique doc_ids on meta.ai page: {unique}")
+                if len(unique) >= 2:
+                    alt = unique[1]
+                    old_alt = self._doc_ids.get("IMAGE_ALT")
+                    if old_alt and old_alt != alt:
+                        self._doc_ids["IMAGE_ALT"] = alt
+                        self._doc_id_sources["IMAGE_ALT"] = "page_extract"
+                        self.logger.info(f"doc_id[IMAGE_ALT] updated from page: {old_alt} → {alt}")
 
-            # Map doc_id keys to their DB config keys
-            key_map = {
-                "TEXT_TO_IMAGE": "doc_id_text_to_image",
-                "TEXT_TO_VIDEO": "doc_id_text_to_video",
-                "IMAGE_ALT": "doc_id_image_alt",
-                "EXTEND_VIDEO": "doc_id_extend_video",
-                "FETCH_CONVERSATION": "doc_id_fetch_conversation",
-                "FETCH_MEDIA": "doc_id_fetch_media",
-                "POLL_MEDIA": "doc_id_poll_media",
-            }
-
-            existing_db = _db.get_all_config()
-            changed = 0
-            for idx, doc_key in enumerate(key_map):
-                if idx >= len(unique):
-                    break
-                db_key = key_map[doc_key]
-                page_val = unique[idx]
-                # Only update if DB doesn't already have a value (DB > page)
-                if db_key not in existing_db or not existing_db[db_key]:
-                    _db.set_config(db_key, page_val)
-                    self._doc_ids[doc_key] = page_val
-                    self._doc_id_sources[doc_key] = "page_extract"
-                    self.logger.info(f"doc_id[{doc_key}] extracted from page → {page_val}")
-                    changed += 1
-
-            if changed:
-                self.logger.info(f"Saved {changed} doc_id(s) from page to DB")
+                self.logger.info(f"Found {len(unique)} unique doc_ids on meta.ai page")
         except Exception as exc:
             self.logger.debug(f"Could not extract doc_ids from page: {exc}")
 
@@ -1691,36 +1677,43 @@ class GenerationAPI:
         return video_ids
     
     def _extract_media_ids_from_response(self, response_data: Dict[str, Any]) -> List[str]:
-        """
-        Extract media IDs from initial video generation response.
-        
-        Args:
-            response_data: Response from generate_video containing events
-            
-        Returns:
-            List of media IDs
-        """
-        media_ids = []
-        
+        """Extract video media IDs from diverse response shapes (SSE + GraphQL payloads)."""
+        media_ids: List[str] = []
+        seen: set = set()
+
+        def maybe_add(value: Any) -> None:
+            normalized = self._normalize_media_id(value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                media_ids.append(normalized)
+
+        def walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                # Common video object pattern
+                if 'id' in obj and any(k in obj for k in ('url', 'fallbackUrl', 'thumbnail', 'videoDeliveryResponseResult', 'sourceMedia')):
+                    maybe_add(obj.get('id'))
+
+                # Common nested media keys across GraphQL payloads
+                for key in (
+                    'videos', 'video', 'imagine_video', 'createRouteMedia',
+                    'mediaLibraryFeed', 'nodes', 'edges', 'node', 'sendMessageStream',
+                    'data', 'xfb_kadabra_send_message', 'imagine_media',
+                ):
+                    if key in obj:
+                        walk(obj.get(key))
+
+                # Fallback: recursively scan all values
+                for value in obj.values():
+                    walk(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    walk(item)
+
         try:
-            # Check if we have events in the response
-            events = response_data.get('events', [])
-            
-            for event in events:
-                data = event.get('data', {})
-                stream = data.get('sendMessageStream', {})
-                
-                # Look for videos in the stream
-                videos = stream.get('videos', [])
-                for video in videos:
-                    media_id = video.get('id')
-                    if media_id and media_id not in media_ids:
-                        media_ids.append(media_id)
-                        self.logger.debug(f"Found media ID in response: {media_id}")
-        
+            walk(response_data)
         except Exception as e:
             self.logger.warning(f"Error extracting media IDs from response: {e}")
-        
+
         return media_ids
     
     def poll_media_by_id(self, media_id: str) -> Dict[str, Any]:
