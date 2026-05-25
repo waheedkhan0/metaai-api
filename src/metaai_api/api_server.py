@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 import time as time_module
 
@@ -112,37 +113,23 @@ cache = TokenCache()
 refresh_task: Optional[asyncio.Task] = None
 app = FastAPI(title="Meta AI API Service", version="0.1.0")
 
-# Add CORS middleware to allow cross-origin requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Session middleware for admin auth
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400)
-
 # Serve static UI files
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
 
-# ── Admin auth middleware ──────────────────────────────────────────
+# ── Admin auth middleware (not decorated — registered at end of file for correct ordering) ──
 PUBLIC_PATHS = {"/healthz", "/api/login", "/api/logout", "/api/auth/check", "/static/login.html", "/static/", "/favicon.ico"}
 
 
-@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if ADMIN_PASSWORD:
         path = request.url.path.rstrip("/") or "/"
-        is_public = path in PUBLIC_PATHS
-        is_static_login = path == "/static/login.html"
-        is_api_public = path.startswith("/api/") and path in {
-            "/api/login", "/api/logout", "/api/auth/check"
-        }
-        if is_static_login or is_api_public or is_public:
+        if path.startswith("/static/") and path != "/static/login.html":
+            return await call_next(request)
+        if path in PUBLIC_PATHS:
+            return await call_next(request)
+        if path.startswith("/api/") and path in {"/api/login", "/api/logout", "/api/auth/check"}:
             return await call_next(request)
         if not request.session.get("authenticated"):
             if path.startswith("/api/"):
@@ -199,7 +186,6 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Middleware to log all requests
-@app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time_module.time()
     logger.warning(f"[REQUEST] {request.method} {request.url.path} - Content-Type: {request.headers.get('content-type', 'none')}")
@@ -973,3 +959,19 @@ async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> 
     except Exception as exc:
         logger.error(f"[UI-GEN {gen_id}] Failed: {exc}")
         db.update_generation(gen_id, status="failed")
+
+
+# ── Middleware registration (order matters!) ───────────────────────
+# add_middleware inserts at position 0. After reversal, first-added = outermost.
+# We add in outermost-first order so the middleware stack is:
+#   CORS → Session → auth → log → router
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400)
+app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
+app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests)
