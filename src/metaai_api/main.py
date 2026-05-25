@@ -1551,7 +1551,7 @@ class MetaAI:
             }
         except Exception as e:
             logging.error(f"Error generating video: {e}")
-            return {
+            error_payload = {
                 "success": False,
                 "status": "FAILED",
                 "processing": False,
@@ -1560,6 +1560,13 @@ class MetaAI:
                 "error": str(e),
                 "prompt": prompt
             }
+
+            response_obj = getattr(e, "response", None)
+            if response_obj is not None:
+                error_payload["http_status"] = getattr(response_obj, "status_code", None)
+                error_payload["http_response_preview"] = (getattr(response_obj, "text", "") or "")[:1200]
+
+            return error_payload
 
     def generate_video(
         self,

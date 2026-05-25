@@ -1018,8 +1018,23 @@ def _apply_config_to_meta_ai() -> None:
 async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> None:
     logger.info(f"[UI-GEN {gen_id}] Starting {body.generation_type} generation")
     db.update_generation(gen_id, status="processing")
+
+    request_context = {
+        "prompt": body.prompt,
+        "generation_type": body.generation_type,
+        "input_media_ids": body.input_media_ids,
+    }
+
     if _meta_ai_instance is None:
-        db.update_generation(gen_id, status="failed")
+        db.update_generation(
+            gen_id,
+            status="failed",
+            result_json={
+                "request": request_context,
+                "error": "MetaAI instance not initialized",
+                "detail": "Server is initializing or rate-limited.",
+            },
+        )
         return
     ai = _meta_ai_instance
     try:
@@ -1043,6 +1058,11 @@ async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> 
                 num_images=1,
                 media_ids=media_ids,
             )
+            request_context["request_kwargs"] = {
+                "orientation": "VERTICAL",
+                "num_images": 1,
+                "media_ids": media_ids,
+            }
         else:
             result = await run_in_threadpool(
                 ai.generate_video_new,
@@ -1052,21 +1072,43 @@ async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> 
                 poll_wait_seconds=3,
                 media_ids=media_ids,
             )
+            request_context["request_kwargs"] = {
+                "auto_poll": True,
+                "max_poll_attempts": 30,
+                "poll_wait_seconds": 3,
+                "media_ids": media_ids,
+            }
         success = result.get("success", False) if isinstance(result, dict) else False
         video_urls = result.get("video_urls", []) if isinstance(result, dict) else []
         media_urls = result.get("media_urls", []) if isinstance(result, dict) else []
         urls = video_urls or media_urls or []
         status = "completed" if (success and urls) else "failed"
+        stored_result = {
+            "request": request_context,
+            "response": result if isinstance(result, dict) else {"raw": str(result)},
+        }
+        if status == "failed":
+            response_error = result.get("error") if isinstance(result, dict) else None
+            stored_result["error"] = response_error or "Generation failed without media URLs"
+
         db.update_generation(
             gen_id,
             status=status,
-            result_json=result if isinstance(result, dict) else {},
+            result_json=stored_result,
             video_urls=urls,
         )
         logger.info(f"[UI-GEN {gen_id}] Completed with status {status}, {len(urls)} file(s)")
     except Exception as exc:
         logger.error(f"[UI-GEN {gen_id}] Failed: {exc}")
-        db.update_generation(gen_id, status="failed")
+        db.update_generation(
+            gen_id,
+            status="failed",
+            result_json={
+                "request": request_context,
+                "error": str(exc),
+                "detail": "Unhandled exception while running generation job",
+            },
+        )
 
 
 # ── Middleware registration (order matters!) ───────────────────────

@@ -635,8 +635,24 @@ class GenerationAPI:
             raise Exception("Authentication failed - please refresh cookies using auto_refresh_cookies.py")
         
         self.logger.info(f"Video gen response - Status: {response.status_code}, Length: {len(response.text)}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
-        
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            response_preview = (response.text or "")[:1200]
+            self.logger.error(
+                "Video gen HTTP %s for doc_id=%s conversation_id=%s payload=%s response=%s",
+                response.status_code,
+                payload.get("doc_id"),
+                conversation_id,
+                json.dumps(payload.get("variables", {}), ensure_ascii=False)[:1200],
+                response_preview,
+            )
+            error = requests.HTTPError(
+                f"Video generation HTTP {response.status_code} for doc_id={payload.get('doc_id')} conversation_id={conversation_id}. "
+                f"Response preview: {response_preview}"
+            )
+            error.response = response
+            raise error
+
         result = self._parse_response(response)
         
         if result.get('video_objects'):
