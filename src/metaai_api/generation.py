@@ -65,6 +65,7 @@ class GenerationAPI:
 
         self._doc_id_sources: Dict[str, str] = {}
         self._doc_ids = self._resolve_doc_ids()
+        self._try_extract_fresher_doc_ids_from_page()
         self._log_active_doc_ids()
         
         # Initialize HTML scraper for extracting video URLs from pages
@@ -110,6 +111,44 @@ class GenerationAPI:
     def _doc_id(self, key: str) -> str:
         """Get resolved doc_id for the provided operation key."""
         return self._doc_ids[key]
+
+    def _try_extract_fresher_doc_ids_from_page(self) -> None:
+        """Try to extract fresher doc_ids from meta.ai page HTML."""
+        try:
+            import re
+            cookie_header = "; ".join(f"{k}={v}" for k, v in self.session.cookies.items())
+            headers = {
+                "cookie": cookie_header,
+                "user-agent": self._default_user_agent(),
+            }
+            resp = self.session.get("https://meta.ai", headers=headers, timeout=15, allow_redirects=True)
+            text = resp.text
+
+            # Look for doc_id patterns in the page HTML
+            doc_id_pattern = re.compile(r'["\']doc_id["\']\s*:\s*["\']([a-f0-9]{32})["\']', re.IGNORECASE)
+            found = doc_id_pattern.findall(text)
+            unique = list(dict.fromkeys(found))  # deduplicate preserving order
+
+            if len(unique) >= 1:
+                newest = unique[0]
+                for key in ("TEXT_TO_IMAGE", "TEXT_TO_VIDEO"):
+                    old = self._doc_ids.get(key)
+                    if old and old != newest:
+                        self._doc_ids[key] = newest
+                        self._doc_id_sources[key] = "page_extract"
+                        self.logger.info(f"doc_id[{key}] updated from page: {old} → {newest}")
+
+                if len(unique) >= 2:
+                    alt = unique[1]
+                    old_alt = self._doc_ids.get("IMAGE_ALT")
+                    if old_alt and old_alt != alt:
+                        self._doc_ids["IMAGE_ALT"] = alt
+                        self._doc_id_sources["IMAGE_ALT"] = "page_extract"
+                        self.logger.info(f"doc_id[IMAGE_ALT] updated from page: {old_alt} → {alt}")
+
+                self.logger.info(f"Found {len(unique)} unique doc_ids on meta.ai page")
+        except Exception as exc:
+            self.logger.debug(f"Could not extract doc_ids from page: {exc}")
 
     def _normalize_graphql_error(self, error: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize GraphQL error payloads from streaming and JSON responses."""
