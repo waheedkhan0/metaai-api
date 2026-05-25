@@ -313,6 +313,10 @@ body {
       <span>History</span>
       <span class="badge" id="historyBadge" style="display:none">0</span>
     </button>
+    <button class="nav-item" data-section="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      <span>Settings</span>
+    </button>
   </nav>
   <div class="sidebar-footer" style="flex-direction:column;align-items:stretch;gap:6px">
     <div style="display:flex;align-items:center;gap:8px">
@@ -367,10 +371,24 @@ body {
     <div class="card-title">Update Cookies</div>
     <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Paste updated cookie values. These will be saved and used for authentication.</p>
     <div class="form-group">
-      <label>Cookie JSON</label>
+      <label>Cookie JSON (key-value pairs)</label>
       <textarea id="cookieInput" rows="6" placeholder='{"datr": "...", "ecto_1_sess": "...", "abra_sess": "..."}'></textarea>
     </div>
     <button class="btn btn-primary" onclick="saveCookies()">Save & Reload Cookies</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Import from Chrome Extension</div>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px">
+      Export cookies from your browser extension (e.g. EditThisCookie, Cookie-Editor) as JSON array and paste below.
+      Only <strong>.meta.ai</strong> domain cookies will be imported. The access token will also be auto-extracted.
+    </p>
+    <div class="form-group">
+      <label>Chrome Cookie JSON Array</label>
+      <textarea id="chromeCookieInput" rows="8" placeholder='[{"domain":".meta.ai","name":"datr","value":"...","httpOnly":true,"secure":true,"sameSite":"lax"},...]'></textarea>
+    </div>
+    <div id="cookieImportStatus" style="display:none;margin-bottom:8px;font-size:13px"></div>
+    <button class="btn btn-primary" onclick="importChromeCookies()">Import & Apply</button>
   </div>
 </div>
 
@@ -457,6 +475,46 @@ body {
   </div>
 </div>
 
+<!-- Settings -->
+<div class="section" id="section-settings">
+  <h2 class="section-title">Settings</h2>
+  <p class="section-subtitle">Configure advanced settings for Meta AI API</p>
+
+  <div class="card">
+    <div class="card-title">GraphQL Doc IDs</div>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">
+      These are used for Meta AI API queries. Extract from browser DevTools (Network tab → graphql requests).
+      Changes apply immediately without restart.
+    </p>
+    <div class="form-row">
+      <div class="form-group"><label>Text-to-Image Doc ID</label><input id="cfg_doc_id_text_to_image" placeholder="32 hex chars"></div>
+      <div class="form-group"><label>Text-to-Video Doc ID</label><input id="cfg_doc_id_text_to_video" placeholder="32 hex chars"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Image Alt Doc ID (fallback)</label><input id="cfg_doc_id_image_alt" placeholder="32 hex chars"></div>
+      <div class="form-group"><label>Extend Video Doc ID</label><input id="cfg_doc_id_extend_video" placeholder="32 hex chars"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Fetch Conversation Doc ID</label><input id="cfg_doc_id_fetch_conversation" placeholder="32 hex chars"></div>
+      <div class="form-group"><label>Fetch Media Doc ID</label><input id="cfg_doc_id_fetch_media" placeholder="32 hex chars"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Poll Media Doc ID</label><input id="cfg_doc_id_poll_media" placeholder="32 hex chars"></div>
+      <div class="form-group"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Current Active Doc IDs</div>
+    <div id="activeDocIds"><p style="color:var(--text-dim);font-size:13px">Loading...</p></div>
+  </div>
+
+  <div class="btn-group">
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+    <button class="btn btn-secondary" onclick="loadSettings()">Reset Form</button>
+  </div>
+</div>
+
 </main>
 
 <!-- Toast container -->
@@ -497,6 +555,7 @@ function switchSection(name) {
   if (name === 'history') loadGenerationHistory();
   if (name === 'upload') loadRecentUploads();
   if (name === 'generate') loadGenImageOptions();
+  if (name === 'settings') loadSettings();
 }
 
 // Toast
@@ -650,6 +709,44 @@ async function refreshCookies() {
     loadCookies();
   } catch (e) {
     toast(`Refresh failed: ${e.message}`, 'error');
+  }
+}
+
+async function importChromeCookies() {
+  const status = document.getElementById('cookieImportStatus');
+  status.style.display = 'none';
+  try {
+    const raw = document.getElementById('chromeCookieInput').value.trim();
+    if (!raw) { toast('Paste cookie JSON first', 'error'); return; }
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const metaCookies = {};
+    let count = 0;
+    for (const entry of arr) {
+      if (entry.domain && entry.domain.includes('.meta.ai') && entry.name && entry.value) {
+        metaCookies[entry.name] = entry.value;
+        count++;
+      }
+    }
+    if (count === 0) {
+      toast('No .meta.ai cookies found in the JSON', 'error');
+      return;
+    }
+    await api('/api/cookies/import', {
+      method: 'POST',
+      body: JSON.stringify({ cookies: metaCookies })
+    });
+    status.style.display = 'block';
+    status.innerHTML = `✅ Imported <strong>${count}</strong> cookies from .meta.ai domain. Access token and doc_ids refreshed.`;
+    status.style.color = 'var(--success)';
+    toast(`Imported ${count} cookies successfully`, 'success');
+    loadCookies();
+    loadDashboard();
+  } catch (e) {
+    status.style.display = 'block';
+    status.innerHTML = `❌ Import failed: ${e.message}`;
+    status.style.color = 'var(--error)';
+    toast(`Import failed: ${e.message}`, 'error');
   }
 }
 
@@ -1061,6 +1158,76 @@ function updateHistoryBadge(n) {
   const b = document.getElementById('historyBadge');
   if (n > 0) { b.style.display = 'inline'; b.textContent = n; }
   else b.style.display = 'none';
+}
+
+// ==================== SETTINGS ====================
+const DOC_ID_KEYS = [
+  'doc_id_text_to_image', 'doc_id_text_to_video', 'doc_id_image_alt',
+  'doc_id_extend_video', 'doc_id_fetch_conversation', 'doc_id_fetch_media', 'doc_id_poll_media'
+];
+
+async function loadSettings() {
+  try {
+    const [cfgRes, cookiesRes] = await Promise.all([
+      api('/api/config'),
+      api('/api/cookies')
+    ]);
+    const cfg = cfgRes.config || {};
+
+    // Fill form from DB config
+    DOC_ID_KEYS.forEach(k => {
+      const el = document.getElementById('cfg_' + k);
+      if (el) el.value = cfg[k] || '';
+    });
+
+    // Show active doc_ids from the running MetaAI instance
+    const activeEl = document.getElementById('activeDocIds');
+    const activeDocIds = cfgRes.active?.active_doc_ids || {};
+    const activeSources = cfgRes.active?.active_doc_id_sources || {};
+    const c = cookiesRes.cookies || {};
+    const hasEssential = c.datr && c.ecto_1_sess ? '✅' : '❌';
+
+    const docRows = Object.entries(activeDocIds).map(([k, v]) =>
+      `<tr><td style="padding:3px 8px;font-size:12px;color:var(--text-dim)">${k}</td>
+       <td style="padding:3px 8px;font-size:12px;font-family:monospace">${v}</td>
+       <td style="padding:3px 8px;font-size:11px;color:var(--text-dim)">${activeSources[k] || 'default'}</td></tr>`
+    ).join('');
+
+    activeEl.innerHTML = `<div style="font-size:13px;color:var(--text-dim)">
+      <p>Cookie status: ${hasEssential} (datr=${c.datr ? 'set' : 'missing'}, ecto_1_sess=${c.ecto_1_sess ? 'set' : 'missing'})</p>
+      <table style="margin-top:8px;width:100%;border-collapse:collapse">
+        <tr><th style="text-align:left;font-size:11px;padding:3px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">Operation</th>
+        <th style="text-align:left;font-size:11px;padding:3px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">Doc ID</th>
+        <th style="text-align:left;font-size:11px;padding:3px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">Source</th></tr>
+        ${docRows}
+      </table>
+    </div>`;
+  } catch (e) {
+    toast('Failed to load settings: ' + e.message, 'error');
+  }
+}
+
+async function saveSettings() {
+  const config = {};
+  DOC_ID_KEYS.forEach(k => {
+    const el = document.getElementById('cfg_' + k);
+    if (el && el.value.trim()) config[k] = el.value.trim();
+  });
+
+  if (Object.keys(config).length === 0) {
+    toast('No settings to save', 'info');
+    return;
+  }
+
+  try {
+    await api('/api/config', {
+      method: 'PUT',
+      body: JSON.stringify({ config })
+    });
+    toast('Settings saved and applied', 'success');
+  } catch (e) {
+    toast('Failed to save: ' + e.message, 'error');
+  }
 }
 
 // Helpers
