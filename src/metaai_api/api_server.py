@@ -376,7 +376,14 @@ async def import_cookies(body: CookieImportRequest):
         has_token = bool(token)
         if has_token:
             logger.info(f"Access token auto-extracted: {token[:50]}...")
+
+        # Try to extract fresh doc_ids from meta.ai page now that we have valid cookies
         if hasattr(_meta_ai_instance, "generation_api"):
+            gen = _meta_ai_instance.generation_api
+            try:
+                gen._try_extract_fresher_doc_ids_from_page()
+            except Exception as page_exc:
+                logger.warning(f"Page doc_id extraction after import failed: {page_exc}")
             _apply_config_to_meta_ai()
         return {
             "success": True,
@@ -576,6 +583,13 @@ async def _startup() -> None:
         logger.warning("Server will start without MetaAI instance. API requests will fail until initialization succeeds.")
         _meta_ai_instance = None
     
+    # Try to extract fresh doc_ids from page (saves to DB, DB > env)
+    if _meta_ai_instance and hasattr(_meta_ai_instance, "generation_api"):
+        try:
+            _meta_ai_instance.generation_api._try_extract_fresher_doc_ids_from_page()
+        except Exception as page_exc:
+            logger.warning(f"Page doc_id extraction on startup failed: {page_exc}")
+
     # Apply any saved config from DB to the running instance
     _apply_config_to_meta_ai()
 

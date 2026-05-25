@@ -72,27 +72,43 @@ class GenerationAPI:
         self.html_scraper = MetaAIHTMLScraper(self.session)
 
     def _resolve_doc_ids(self) -> Dict[str, str]:
-        """Resolve active doc_ids from environment overrides with sane defaults."""
+        """Resolve active doc_ids with priority: DB > env > defaults."""
         active: Dict[str, str] = {}
+        db_config = {}
+        try:
+            from metaai_api.database import db
+            db_config = db.get_all_config()
+        except Exception:
+            pass
 
         for key, default_value in self.DOC_ID_DEFAULTS.items():
             resolved = None
             source = "default"
 
-            for env_key in self.DOC_ID_ENV_KEYS.get(key, ()):  # pragma: no branch
-                env_value = os.getenv(env_key)
-                if env_value is None:
-                    continue
-                env_value = env_value.strip()
-                if not env_value:
-                    self.logger.warning("Ignoring empty doc_id override %s for %s", env_key, key)
-                    continue
-                if not env_value.isalnum():
-                    self.logger.warning("doc_id override %s for %s contains non-alphanumeric characters", env_key, key)
-                resolved = env_value
-                source = f"env:{env_key}"
-                break
+            # 1. Check DB config (highest priority — set via Settings UI)
+            db_key = f"doc_id_{key.lower()}"
+            db_val = db_config.get(db_key)
+            if db_val and len(db_val) == 32 and db_val.isalnum():
+                resolved = db_val
+                source = "db_config"
 
+            # 2. Fall back to env vars
+            if resolved is None:
+                for env_key in self.DOC_ID_ENV_KEYS.get(key, ()):
+                    env_value = os.getenv(env_key)
+                    if env_value is None:
+                        continue
+                    env_value = env_value.strip()
+                    if not env_value:
+                        self.logger.warning("Ignoring empty doc_id override %s for %s", env_key, key)
+                        continue
+                    if not env_value.isalnum():
+                        self.logger.warning("doc_id override %s for %s contains non-alphanumeric characters", env_key, key)
+                    resolved = env_value
+                    source = f"env:{env_key}"
+                    break
+
+            # 3. Use hardcoded default
             active[key] = resolved or default_value
             self._doc_id_sources[key] = source
 
@@ -113,9 +129,10 @@ class GenerationAPI:
         return self._doc_ids[key]
 
     def _try_extract_fresher_doc_ids_from_page(self) -> None:
-        """Try to extract fresher doc_ids from meta.ai page HTML."""
+        """Try to extract fresher doc_ids from meta.ai page HTML and save to DB."""
         try:
             import re
+            from metaai_api.database import db as _db
             cookie_header = "; ".join(f"{k}={v}" for k, v in self.session.cookies.items())
             headers = {
                 "cookie": cookie_header,
@@ -124,31 +141,44 @@ class GenerationAPI:
             resp = self.session.get("https://meta.ai", headers=headers, timeout=15, allow_redirects=True)
             text = resp.text
 
-            # Look for doc_id patterns in the page HTML
             doc_id_pattern = re.compile(r'["\']doc_id["\']\s*:\s*["\']([a-f0-9]{32})["\']', re.IGNORECASE)
             found = doc_id_pattern.findall(text)
-            unique = list(dict.fromkeys(found))  # deduplicate preserving order
+            unique = list(dict.fromkeys(found))
 
-            if len(unique) >= 1:
-                newest = unique[0]
-                # Do not auto-override primary generation doc_ids from generic page HTML.
-                # The page contains multiple experiment/stale doc_ids that can reference
-                # GraphQL schemas with mismatched input types (for example rewriteOptions).
-                # Keep stable defaults/env overrides unless explicitly configured.
-                self.logger.debug(
-                    "Skipping auto-override for TEXT_TO_IMAGE/TEXT_TO_VIDEO doc_ids from page extract candidate: %s",
-                    newest,
-                )
+            if not unique:
+                self.logger.info("No doc_ids found on meta.ai page")
+                return
 
-                if len(unique) >= 2:
-                    alt = unique[1]
-                    old_alt = self._doc_ids.get("IMAGE_ALT")
-                    if old_alt and old_alt != alt:
-                        self._doc_ids["IMAGE_ALT"] = alt
-                        self._doc_id_sources["IMAGE_ALT"] = "page_extract"
-                        self.logger.info(f"doc_id[IMAGE_ALT] updated from page: {old_alt} → {alt}")
+            self.logger.info(f"Found {len(unique)} unique doc_ids on meta.ai page: {unique}")
 
-                self.logger.info(f"Found {len(unique)} unique doc_ids on meta.ai page")
+            # Map doc_id keys to their DB config keys
+            key_map = {
+                "TEXT_TO_IMAGE": "doc_id_text_to_image",
+                "TEXT_TO_VIDEO": "doc_id_text_to_video",
+                "IMAGE_ALT": "doc_id_image_alt",
+                "EXTEND_VIDEO": "doc_id_extend_video",
+                "FETCH_CONVERSATION": "doc_id_fetch_conversation",
+                "FETCH_MEDIA": "doc_id_fetch_media",
+                "POLL_MEDIA": "doc_id_poll_media",
+            }
+
+            existing_db = _db.get_all_config()
+            changed = 0
+            for idx, doc_key in enumerate(key_map):
+                if idx >= len(unique):
+                    break
+                db_key = key_map[doc_key]
+                page_val = unique[idx]
+                # Only update if DB doesn't already have a value (DB > page)
+                if db_key not in existing_db or not existing_db[db_key]:
+                    _db.set_config(db_key, page_val)
+                    self._doc_ids[doc_key] = page_val
+                    self._doc_id_sources[doc_key] = "page_extract"
+                    self.logger.info(f"doc_id[{doc_key}] extracted from page → {page_val}")
+                    changed += 1
+
+            if changed:
+                self.logger.info(f"Saved {changed} doc_id(s) from page to DB")
         except Exception as exc:
             self.logger.debug(f"Could not extract doc_ids from page: {exc}")
 
