@@ -473,6 +473,23 @@ async def delete_generation_endpoint(gen_id: int):
     return {"success": True}
 
 
+@app.get("/api/config")
+async def get_config():
+    return {"config": db.get_all_config()}
+
+
+class ConfigUpdateRequest(BaseModel):
+    config: Dict[str, str]
+
+
+@app.put("/api/config")
+async def update_config(body: ConfigUpdateRequest):
+    for key, value in body.config.items():
+        db.set_config(key, value)
+    _apply_config_to_meta_ai()
+    return {"success": True, "config": db.get_all_config()}
+
+
 @app.get("/api/download")
 async def download_file(url: str, name: str = "download.mp4"):
     try:
@@ -516,6 +533,9 @@ async def _startup() -> None:
         logger.warning("Server will start without MetaAI instance. API requests will fail until initialization succeeds.")
         _meta_ai_instance = None
     
+    # Apply any saved config from DB to the running instance
+    _apply_config_to_meta_ai()
+
     refresh_task = asyncio.create_task(_refresh_loop())
 
 
@@ -908,6 +928,34 @@ async def _refresh_loop() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Background refresh failed: %s", exc)
         await asyncio.sleep(REFRESH_SECONDS)
+
+
+def _apply_config_to_meta_ai() -> None:
+    """Apply DB config values to the running MetaAI instance."""
+    ai = _meta_ai_instance
+    if ai is None or not hasattr(ai, "generation_api"):
+        return
+    gen_api = ai.generation_api
+    doc_id_keys = [
+        ("doc_id_text_to_image", "TEXT_TO_IMAGE"),
+        ("doc_id_text_to_video", "TEXT_TO_VIDEO"),
+        ("doc_id_image_alt", "IMAGE_ALT"),
+        ("doc_id_extend_video", "EXTEND_VIDEO"),
+        ("doc_id_fetch_conversation", "FETCH_CONVERSATION"),
+        ("doc_id_fetch_media", "FETCH_MEDIA"),
+        ("doc_id_poll_media", "POLL_MEDIA"),
+    ]
+    changed = False
+    for cfg_key, doc_key in doc_id_keys:
+        val = db.get_config(cfg_key)
+        if val and len(val) == 32 and val.isalnum():
+            if gen_api._doc_ids.get(doc_key) != val:
+                gen_api._doc_ids[doc_key] = val
+                gen_api._doc_id_sources[doc_key] = "db_config"
+                logger.info("Applied doc_id[%s] from DB config: %s", doc_key, val)
+                changed = True
+    if changed:
+        gen_api._log_active_doc_ids()
 
 
 async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> None:

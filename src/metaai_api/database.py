@@ -48,6 +48,11 @@ class Database:
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
         """)
         conn.commit()
 
@@ -173,6 +178,27 @@ class Database:
         conn.execute("DELETE FROM generations WHERE id = ?", (gen_id,))
         conn.commit()
         return True
+
+
+    # ── Config (key-value store) ────────────────────────────────────────
+    def get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        conn = self._get_conn()
+        row = conn.execute("SELECT value FROM config WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_config(self, key: str, value: str) -> None:
+        conn = self._get_conn()
+        now = datetime.utcnow().isoformat()
+        conn.execute(
+            "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, ?)",
+            (key, value, now)
+        )
+        conn.commit()
+
+    def get_all_config(self) -> dict:
+        conn = self._get_conn()
+        rows = conn.execute("SELECT key, value FROM config").fetchall()
+        return {r["key"]: r["value"] for r in rows}
 
 
 db = Database()
