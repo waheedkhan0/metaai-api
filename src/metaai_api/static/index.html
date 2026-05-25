@@ -1130,18 +1130,26 @@ async function loadSettings() {
 
     // Show active doc_ids from the running MetaAI instance
     const activeEl = document.getElementById('activeDocIds');
-    try {
-      const statusRes = await fetch('/api/generations', { method: 'GET', headers: { 'Accept': 'application/json' } });
-      // Also log the cookies info
-      const c = cookiesRes.cookies || {};
-      const hasEssential = c.datr && c.ecto_1_sess ? '✅' : '❌';
-      activeEl.innerHTML = `<div style="font-size:13px;color:var(--text-dim)">
-        <p>Cookie status: ${hasEssential} datr=${c.datr ? 'set' : 'missing'}, ecto_1_sess=${c.ecto_1_sess ? 'set' : 'missing'}</p>
-        <p style="margin-top:8px">Doc IDs are loaded from env vars or DB config. Set them above and click Save.</p>
-      </div>`;
-    } catch {
-      activeEl.innerHTML = '<p style="color:var(--text-dim);font-size:13px">Could not fetch status</p>';
-    }
+    const activeDocIds = cfgRes.active?.active_doc_ids || {};
+    const activeSources = cfgRes.active?.active_doc_id_sources || {};
+    const c = cookiesRes.cookies || {};
+    const hasEssential = c.datr && c.ecto_1_sess ? '✅' : '❌';
+
+    const docRows = Object.entries(activeDocIds).map(([k, v]) =>
+      `<tr><td style="padding:3px 8px;font-size:12px;color:var(--text-dim)">${k}</td>
+       <td style="padding:3px 8px;font-size:12px;font-family:monospace">${v}</td>
+       <td style="padding:3px 8px;font-size:11px;color:var(--text-dim)">${activeSources[k] || 'default'}</td></tr>`
+    ).join('');
+
+    activeEl.innerHTML = `<div style="font-size:13px;color:var(--text-dim)">
+      <p>Cookie status: ${hasEssential} (datr=${c.datr ? 'set' : 'missing'}, ecto_1_sess=${c.ecto_1_sess ? 'set' : 'missing'})</p>
+      <table style="margin-top:8px;width:100%;border-collapse:collapse">
+        <tr><th style="text-align:left;font-size:11px;padding:3px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">Operation</th>
+        <th style="text-align:left;font-size:11px;padding:3px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">Doc ID</th>
+        <th style="text-align:left;font-size:11px;padding:3px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">Source</th></tr>
+        ${docRows}
+      </table>
+    </div>`;
   } catch (e) {
     toast('Failed to load settings: ' + e.message, 'error');
   }

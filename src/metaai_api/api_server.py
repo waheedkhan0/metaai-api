@@ -475,7 +475,14 @@ async def delete_generation_endpoint(gen_id: int):
 
 @app.get("/api/config")
 async def get_config():
-    return {"config": db.get_all_config()}
+    active = {}
+    if _meta_ai_instance and hasattr(_meta_ai_instance, "generation_api"):
+        gen = _meta_ai_instance.generation_api
+        active = {
+            "active_doc_ids": dict(gen._doc_ids),
+            "active_doc_id_sources": dict(gen._doc_id_sources),
+        }
+    return {"config": db.get_all_config(), "active": active}
 
 
 class ConfigUpdateRequest(BaseModel):
