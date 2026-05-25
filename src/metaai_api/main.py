@@ -664,7 +664,6 @@ class MetaAI:
                     "attachments": None,
                     "attachmentsV2": attachments_v2 if attachments_v2 else None,
                     "mentions": None,
-                    "rewriteOptions": None,
                     "imagineOperationRequest": None,
                 },
             }

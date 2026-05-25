@@ -319,7 +319,6 @@ class GenerationAPI:
             "userUniqueMessageId": str(kwargs.get('user_unique_message_id', self._generate_unique_id())),
             "turnId": turn_id,
             "mode": None if is_extend_video else "create",
-            "rewriteOptions": None,
             "attachments": None,
             "attachmentsV2": attachments_v2,
             "mentions": None,
