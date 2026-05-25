@@ -1447,6 +1447,15 @@ class MetaAI:
                     vid_id = vid_obj.get('id')
                     if vid_id and vid_id not in media_ids:
                         media_ids.append(vid_id)
+
+            if not media_ids:
+                # Newer GraphQL payloads frequently move media IDs away from sendMessageStream.videos.
+                # Use broad response extraction as a fallback before declaring failure.
+                extracted_ids = self.generation_api._extract_media_ids_from_response(response)
+                if isinstance(extracted_ids, list):
+                    for extracted_id in extracted_ids:
+                        if extracted_id not in media_ids:
+                            media_ids.append(extracted_id)
             
             for vid_obj in video_objects:
                 vid_id = vid_obj.get('id')
@@ -1520,7 +1529,11 @@ class MetaAI:
             if has_graphql_errors:
                 error_message = self._graphql_error_summary(graphql_errors)
             elif status == "FAILED":
-                error_message = "Video generation returned no media IDs or URLs"
+                stream_state = response.get('streaming_state')
+                if stream_state:
+                    error_message = f"Video generation returned no media IDs or URLs (streaming_state={stream_state})"
+                else:
+                    error_message = "Video generation returned no media IDs or URLs"
             
             return {
                 "success": success,
