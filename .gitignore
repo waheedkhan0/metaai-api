@@ -143,3 +143,6 @@ test_api.html
 # Generated feature test reports
 chat_feature_test_results*.json
 tests/integration/outputs/feature_test_report*.json
+
+# Runtime data (uploads, database)
+data/

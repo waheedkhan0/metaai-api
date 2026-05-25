@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaAI Manager</title>
+<style>
+:root {
+  --bg: #0f0f0f;
+  --sidebar: #16161a;
+  --card: #1e1e24;
+  --card-hover: #282830;
+  --primary: #7c5cfc;
+  --primary-dim: #5a3fc7;
+  --success: #22c55e;
+  --warning: #eab308;
+  --error: #ef4444;
+  --text: #e4e4e7;
+  --text-dim: #888890;
+  --border: #2a2a32;
+  --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text); display: flex; min-height: 100vh;
+  font-size: 14px; line-height: 1.5;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 220px; background: var(--sidebar); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; position: fixed; top: 0; left: 0;
+  height: 100vh; z-index: 100; padding: 0;
+}
+.sidebar-header {
+  padding: 20px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar-header svg { width: 28px; height: 28px; }
+.sidebar-header h1 { font-size: 16px; font-weight: 600; color: var(--text); }
+.sidebar-header span { color: var(--text-dim); font-size: 11px; }
+.sidebar-nav { flex: 1; padding: 8px; overflow-y: auto; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: 8px; cursor: pointer; color: var(--text-dim); transition: all .15s;
+  margin-bottom: 2px; font-size: 13px; border: none; background: none; width: 100%;
+  text-align: left;
+}
+.nav-item:hover { background: var(--card); color: var(--text); }
+.nav-item.active { background: var(--primary); color: #fff; }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.nav-item .badge {
+  margin-left: auto; background: var(--primary); color: #fff; font-size: 10px;
+  padding: 2px 7px; border-radius: 10px; min-width: 20px; text-align: center;
+}
+.nav-item.active .badge { background: rgba(255,255,255,.2); }
+.sidebar-footer {
+  padding: 12px 16px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.status-dot.online { background: var(--success); }
+.status-dot.offline { background: var(--error); }
+.status-dot.pending { background: var(--warning); }
+.sidebar-footer span { font-size: 11px; color: var(--text-dim); }
+
+/* Main */
+.main { margin-left: 220px; flex: 1; padding: 24px; max-width: 1200px; }
+
+.section { display: none; }
+.section.active { display: block; }
+.section-title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+.section-subtitle { color: var(--text-dim); margin-bottom: 20px; font-size: 13px; }
+
+/* Cards */
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; margin-bottom: 16px;
+}
+.card-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;
+}
+.stat-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; display: flex; flex-direction: column; gap: 4px;
+}
+.stat-card .stat-label { font-size: 12px; color: var(--text-dim); }
+.stat-card .stat-value { font-size: 28px; font-weight: 700; }
+.stat-card .stat-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+/* Forms */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; color: var(--text-dim); }
+.form-group input, .form-group textarea, .form-group select {
+  width: 100%; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px; outline: none; transition: border .15s;
+  font-family: inherit;
+}
+.form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+  border-color: var(--primary);
+}
+.form-group textarea { resize: vertical; min-height: 70px; font-family: monospace; }
+.form-row { display: flex; gap: 12px; }
+.form-row > * { flex: 1; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;
+  border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;
+  border: 1px solid transparent; transition: all .15s; text-decoration: none;
+  font-family: inherit;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dim); }
+.btn-secondary { background: var(--card); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--card-hover); }
+.btn-danger { background: transparent; color: var(--error); border-color: var(--error); }
+.btn-danger:hover { background: var(--error); color: #fff; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { opacity: .85; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* Cookie table */
+.cookie-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.cookie-item {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  background: var(--bg); border-radius: 6px; border: 1px solid var(--border);
+}
+.cookie-item .cookie-name { font-size: 11px; color: var(--primary); font-weight: 500; }
+.cookie-item .cookie-value {
+  font-size: 12px; color: var(--text-dim); font-family: monospace;
+  word-break: break-all; max-height: 40px; overflow: hidden;
+}
+.cookie-item .cookie-value.revealed { max-height: none; }
+
+/* Upload zone */
+.upload-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 40px; text-align: center; cursor: pointer; transition: all .15s;
+  margin-bottom: 16px;
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--primary); background: rgba(124,92,252,.05);
+}
+.upload-zone svg { width: 40px; height: 40px; color: var(--text-dim); margin-bottom: 8px; }
+.upload-zone p { color: var(--text-dim); font-size: 13px; }
+.upload-preview {
+  display: none; margin-top: 12px; text-align: center;
+}
+.upload-preview img {
+  max-width: 300px; max-height: 200px; border-radius: 6px; border: 1px solid var(--border);
+}
+
+/* Media Grid */
+.media-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;
+}
+.media-item {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; transition: border .15s; position: relative;
+}
+.media-item:hover { border-color: var(--primary); }
+.media-item.selected { border-color: var(--success); box-shadow: 0 0 0 2px var(--success); }
+.media-item img {
+  width: 100%; height: 140px; object-fit: cover; display: block; background: #000;
+}
+.media-item .media-info {
+  padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;
+}
+.media-item .media-name {
+  font-size: 11px; color: var(--text-dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.media-item .media-actions { display: flex; gap: 4px; }
+.media-item .media-check {
+  position: absolute; top: 6px; right: 6px; width: 22px; height: 22px;
+  border-radius: 4px; background: rgba(0,0,0,.6); border: 2px solid rgba(255,255,255,.3);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  color: transparent; transition: all .15s;
+}
+.media-item.selected .media-check {
+  background: var(--success); border-color: var(--success); color: #fff;
+}
+
+/* Generation Card */
+.gen-item {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 14px; align-items: flex-start;
+}
+.gen-item .gen-icon {
+  width: 40px; height: 40px; border-radius: 6px; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.gen-item .gen-info { flex: 1; min-width: 0; }
+.gen-item .gen-prompt {
+  font-size: 13px; font-weight: 500; margin-bottom: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gen-item .gen-meta { font-size: 11px; color: var(--text-dim); }
+.gen-item .gen-status {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: 4px; font-size: 11px; font-weight: 500; flex-shrink: 0;
+}
+.gen-status.completed { background: rgba(34,197,94,.15); color: var(--success); }
+.gen-status.processing { background: rgba(234,179,8,.15); color: var(--warning); }
+.gen-status.failed { background: rgba(239,68,68,.15); color: var(--error); }
+.gen-status.pending { background: rgba(136,136,144,.15); color: var(--text-dim); }
+.gen-item .gen-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+.gen-expanded {
+  display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.gen-expanded.open { display: block; }
+.gen-expanded .url-list { display: flex; flex-direction: column; gap: 4px; }
+.gen-expanded .url-list a {
+  color: var(--primary); font-size: 12px; word-break: break-all;
+  display: flex; align-items: center; gap: 6px;
+}
+.gen-expanded .url-list a:hover { text-decoration: underline; }
+
+/* Toast */
+.toast-container {
+  position: fixed; top: 16px; right: 16px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  padding: 12px 16px; border-radius: 8px; font-size: 13px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4); animation: slideIn .2s ease;
+  max-width: 380px; display: flex; align-items: center; gap: 8px;
+}
+.toast.success { background: #166534; border: 1px solid var(--success); color: #fff; }
+.toast.error { background: #7f1d1d; border: 1px solid var(--error); color: #fff; }
+.toast.info { background: #1e3a5f; border: 1px solid #3b82f6; color: #fff; }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* Loading spinner */
+.spinner {
+  width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.2);
+  border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Progress bar */
+.progress-bar {
+  width: 100%; height: 4px; background: var(--border); border-radius: 2px;
+  margin-top: 8px; overflow: hidden;
+}
+.progress-bar .progress-fill {
+  height: 100%; background: var(--primary); border-radius: 2px;
+  transition: width .3s ease; width: 0%;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center; padding: 40px; color: var(--text-dim);
+}
+.empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: .4; }
+.empty-state p { font-size: 13px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar { width: 60px; }
+  .sidebar-header h1, .sidebar-header span, .nav-item span, .sidebar-footer span { display: none; }
+  .sidebar-header { justify-content: center; padding: 16px 8px; }
+  .nav-item { justify-content: center; padding: 10px; }
+  .main { margin-left: 60px; padding: 16px; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .cookie-grid { grid-template-columns: 1fr; }
+  .form-row { flex-direction: column; }
+  .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 014 4c0 2-2 4-4 4s-4-2-4-4 2-4 4-4z"/><path d="M4 22v-2a4 4 0 014-4h8a4 4 0 014 4v2"/></svg>
+    <div><h1>MetaAI</h1><span>Management</span></div>
+  </div>
+  <nav class="sidebar-nav">
+    <button class="nav-item active" data-section="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav-item" data-section="cookies">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1010 10 4 4 0 01-5-5 4 4 0 01-5-5"/><circle cx="8" cy="15" r="1"/><circle cx="14" cy="10" r="1"/></svg>
+      <span>Cookies</span>
+      <span class="badge" id="cookieBadge">!</span>
+    </button>
+    <button class="nav-item" data-section="upload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span>Upload</span>
+    </button>
+    <button class="nav-item" data-section="library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      <span>Media Library</span>
+      <span class="badge" id="uploadBadge" style="display:none">0</span>
+    </button>
+    <button class="nav-item" data-section="generate">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      <span>Generate</span>
+    </button>
+    <button class="nav-item" data-section="history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span>History</span>
+      <span class="badge" id="historyBadge" style="display:none">0</span>
+    </button>
+  </nav>
+  <div class="sidebar-footer">
+    <span class="status-dot pending" id="statusDot"></span>
+    <span id="statusText">Connecting...</span>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<main class="main">
+
+<!-- Dashboard -->
+<div class="section active" id="section-dashboard">
+  <h2 class="section-title">Dashboard</h2>
+  <p class="section-subtitle">Overview of your MetaAI instance</p>
+  <div class="card-grid" id="statsGrid">
+    <div class="stat-card"><div class="stat-label">Cookie Status</div><div class="stat-value" id="statCookies">—</div><div class="stat-sub" id="statCookiesSub">Checking...</div></div>
+    <div class="stat-card"><div class="stat-label">Uploads</div><div class="stat-value" id="statUploads">0</div><div class="stat-sub">Uploaded images</div></div>
+    <div class="stat-card"><div class="stat-label">Generations</div><div class="stat-value" id="statGens">0</div><div class="stat-sub">Total generations</div></div>
+    <div class="stat-card"><div class="stat-label">Server Status</div><div class="stat-value" id="statServer">—</div><div class="stat-sub" id="statServerSub">Checking...</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Quick Actions</div>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="switchSection('upload')">Upload Image</button>
+      <button class="btn btn-primary" onclick="switchSection('generate')">New Generation</button>
+      <button class="btn btn-secondary" onclick="switchSection('cookies')">Manage Cookies</button>
+      <button class="btn btn-secondary" onclick="switchSection('history')">View History</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Cookie Values</div>
+    <div id="dashboardCookies" class="cookie-grid"></div>
+  </div>
+</div>
+
+<!-- Cookies -->
+<div class="section" id="section-cookies">
+  <h2 class="section-title">Cookie Management</h2>
+  <p class="section-subtitle">View and update Meta AI authentication cookies</p>
+  <div class="card">
+    <div class="card-title">Current Cookies <span id="cookieStatus" style="font-weight:400;font-size:12px;color:var(--text-dim)"></span></div>
+    <div id="cookieList" class="cookie-grid"></div>
+    <div class="btn-group">
+      <button class="btn btn-secondary btn-sm" onclick="toggleCookieVisibility()">Show/Hide Values</button>
+      <button class="btn btn-primary btn-sm" onclick="refreshCookies()">Refresh from Meta</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Update Cookies</div>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Paste updated cookie values. These will be saved and used for authentication.</p>
+    <div class="form-group">
+      <label>Cookie JSON</label>
+      <textarea id="cookieInput" rows="6" placeholder='{"datr": "...", "ecto_1_sess": "...", "abra_sess": "..."}'></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="saveCookies()">Save & Reload Cookies</button>
+  </div>
+</div>
+
+<!-- Upload -->
+<div class="section" id="section-upload">
+  <h2 class="section-title">Upload Image</h2>
+  <p class="section-subtitle">Upload images for use in video generation</p>
+  <div class="card">
+    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p>Drag & drop an image here, or click to browse</p>
+      <p style="font-size:11px;margin-top:4px">Supports JPG, PNG, GIF, WebP</p>
+      <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="previewFile(event)">
+    </div>
+    <div class="upload-preview" id="uploadPreview">
+      <img id="previewImg" src="" alt="Preview">
+      <div class="progress-bar" id="uploadProgress" style="display:none"><div class="progress-fill" id="uploadProgressFill"></div></div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="uploadBtn" onclick="doUpload()">Upload to Meta AI</button>
+        <button class="btn btn-secondary" onclick="clearUpload()">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Recent Uploads</div>
+    <div id="recentUploads"><div class="empty-state"><p>No uploads yet</p></div></div>
+  </div>
+</div>
+
+<!-- Media Library -->
+<div class="section" id="section-library">
+  <h2 class="section-title">Media Library</h2>
+  <p class="section-subtitle">Browse and manage your uploaded images</p>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <span class="card-title" style="margin-bottom:0">Uploaded Images</span>
+      <button class="btn btn-danger btn-sm" onclick="deleteSelectedUploads()" id="deleteSelectedBtn" style="display:none">Delete Selected</button>
+    </div>
+    <div id="mediaGrid" class="media-grid"><div class="empty-state"><p>No uploads yet. Go to Upload tab to add images.</p></div></div>
+  </div>
+</div>
+
+<!-- Generate -->
+<div class="section" id="section-generate">
+  <h2 class="section-title">Generate Video</h2>
+  <p class="section-subtitle">Create AI videos from text prompts or uploaded images</p>
+  <div class="card">
+    <div class="form-group">
+      <label>Prompt</label>
+      <textarea id="genPrompt" rows="3" placeholder="Describe the video you want to generate..." style="font-family:inherit"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>From Images</label>
+        <select id="genImageSelect"><option value="">None (text-to-video)</option></select>
+      </div>
+      <div class="form-group">
+        <label>Generation Mode</label>
+        <select id="genMode">
+          <option value="video">Video</option>
+          <option value="image">Image</option>
+        </select>
+      </div>
+    </div>
+    <div id="genImageOptions" style="display:none">
+      <div class="card" style="background:var(--bg);padding:12px;margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:8px;font-size:12px">Selected Images (click to deselect)</div>
+        <div class="media-grid" id="genImageGrid" style="grid-template-columns:repeat(auto-fill,minmax(100px,1fr))"></div>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="startGeneration()" id="genBtn">Generate</button>
+    </div>
+    <div id="genResult" style="display:none;margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- History -->
+<div class="section" id="section-history">
+  <h2 class="section-title">Generation History</h2>
+  <p class="section-subtitle">View and manage your generated content</p>
+  <div class="card">
+    <div id="genList"></div>
+  </div>
+</div>
+
+</main>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// State
+let cookieVisible = false;
+let selectedFile = null;
+let selectedUploadIds = new Set();
+
+// Navigation
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    switchSection(item.dataset.section);
+  });
+});
+
+function switchSection(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`section-${name}`).classList.add('active');
+  document.querySelector(`.nav-item[data-section="${name}"]`).classList.add('active');
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'cookies') loadCookies();
+  if (name === 'library') loadMediaLibrary();
+  if (name === 'history') loadGenerationHistory();
+  if (name === 'upload') loadRecentUploads();
+  if (name === 'generate') loadGenImageOptions();
+}
+
+// Toast
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.remove(); }, 4000);
+}
+
+// API helpers
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    ...opts
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const d = await res.json(); msg = d.detail || d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// Cookie visibility toggle
+function toggleCookieVisibility() {
+  cookieVisible = !cookieVisible;
+  loadCookies();
+}
+
+// Set status indicator
+function setStatus(ok, msg) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = `status-dot ${ok ? 'online' : 'offline'}`;
+  txt.textContent = msg;
+}
+
+// ==================== DASHBOARD ====================
+async function loadDashboard() {
+  try {
+    const [cookies, uploads, gens, health] = await Promise.all([
+      api('/api/cookies').catch(() => null),
+      api('/api/uploads').catch(() => null),
+      api('/api/generations').catch(() => null),
+      api('/healthz').catch(() => null),
+    ]);
+
+    const cookData = cookies?.cookies || {};
+    const cookCount = Object.keys(cookData).length;
+    const hasEssential = cookData.datr && cookData.ecto_1_sess;
+    document.getElementById('statCookies').textContent = hasEssential ? 'Active' : 'Missing';
+    document.getElementById('statCookies').style.color = hasEssential ? 'var(--success)' : 'var(--error)';
+    document.getElementById('statCookiesSub').textContent = `${cookCount} cookies set`;
+
+    const up = Array.isArray(uploads) ? uploads : (uploads?.uploads || []);
+    document.getElementById('statUploads').textContent = up.length;
+
+    const g = Array.isArray(gens) ? gens : (gens?.generations || []);
+    document.getElementById('statGens').textContent = g.length;
+
+    if (health) {
+      document.getElementById('statServer').textContent = 'Healthy';
+      document.getElementById('statServer').style.color = 'var(--success)';
+      document.getElementById('statServerSub').textContent = 'Server running';
+      setStatus(true, 'Connected');
+    } else {
+      document.getElementById('statServer').textContent = 'Error';
+      document.getElementById('statServer').style.color = 'var(--error)';
+      document.getElementById('statServerSub').textContent = 'Cannot reach server';
+      setStatus(false, 'Disconnected');
+    }
+
+    // Show cookie values
+    const html = Object.entries(cookData).map(([k, v]) =>
+      `<div class="cookie-item">
+        <span class="cookie-name">${k}</span>
+        <span class="cookie-value">${v ? v.substring(0, 30) + '...' : '(empty)'}</span>
+      </div>`
+    ).join('') || '<p style="color:var(--text-dim);font-size:13px">No cookies set</p>';
+    document.getElementById('dashboardCookies').innerHTML = html;
+
+  } catch (e) {
+    setStatus(false, 'Offline');
+  }
+}
+
+// ==================== COOKIES ====================
+async function loadCookies() {
+  try {
+    const data = await api('/api/cookies');
+    const c = data.cookies || {};
+    const list = document.getElementById('cookieList');
+
+    if (Object.keys(c).length === 0) {
+      list.innerHTML = '<p style="color:var(--text-dim)">No cookies configured</p>';
+      return;
+    }
+
+    list.innerHTML = Object.entries(c).map(([k, v]) =>
+      `<div class="cookie-item">
+        <span class="cookie-name">${k}</span>
+        <span class="cookie-value${cookieVisible ? ' revealed' : ''}">${v || '(empty)'}</span>
+      </div>`
+    ).join('');
+
+    document.getElementById('cookieStatus').textContent =
+      `(${Object.keys(c).length} cookies)`;
+
+    // Fill the update textarea
+    document.getElementById('cookieInput').value = JSON.stringify(c, null, 2);
+
+  } catch (e) {
+    document.getElementById('cookieList').innerHTML =
+      `<p style="color:var(--error)">Failed to load cookies: ${e.message}</p>`;
+  }
+}
+
+async function saveCookies() {
+  try {
+    const val = document.getElementById('cookieInput').value;
+    const cookies = JSON.parse(val);
+    await api('/api/cookies', {
+      method: 'PUT',
+      body: JSON.stringify({ cookies })
+    });
+    toast('Cookies saved successfully', 'success');
+    loadCookies();
+    loadDashboard();
+  } catch (e) {
+    toast(`Failed to save cookies: ${e.message}`, 'error');
+  }
+}
+
+async function refreshCookies() {
+  try {
+    await api('/api/cookies/refresh', { method: 'POST' });
+    toast('Cookies refreshed', 'success');
+    loadCookies();
+  } catch (e) {
+    toast(`Refresh failed: ${e.message}`, 'error');
+  }
+}
+
+// ==================== UPLOAD ====================
+function previewFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  selectedFile = file;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    document.getElementById('previewImg').src = ev.target.result;
+    document.getElementById('uploadPreview').style.display = 'block';
+    document.getElementById('uploadZone').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearUpload() {
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('uploadPreview').style.display = 'none';
+  document.getElementById('uploadZone').style.display = 'block';
+  document.getElementById('uploadProgress').style.display = 'none';
+  document.getElementById('uploadBtn').disabled = false;
+  document.getElementById('uploadBtn').innerHTML = 'Upload to Meta AI';
+}
+
+async function doUpload() {
+  if (!selectedFile) return;
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Uploading...';
+  document.getElementById('uploadProgress').style.display = 'block';
+  document.getElementById('uploadProgressFill').style.width = '0%';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/uploads', true);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        document.getElementById('uploadProgressFill').style.width = pct + '%';
+      }
+    };
+
+    const result = await new Promise((resolve, reject) => {
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          try { reject(new Error(JSON.parse(xhr.responseText).detail || 'Upload failed')); }
+          catch { reject(new Error(`HTTP ${xhr.status}`)); }
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(formData);
+    });
+
+    toast(`Uploaded "${selectedFile.name}" successfully`, 'success');
+    clearUpload();
+    loadRecentUploads();
+    loadDashboard();
+
+  } catch (e) {
+    toast(`Upload failed: ${e.message}`, 'error');
+    document.getElementById('uploadProgressFill').style.width = '0%';
+    document.getElementById('uploadProgress').style.display = 'none';
+    btn.disabled = false;
+    btn.innerHTML = 'Upload to Meta AI';
+  }
+}
+
+async function loadRecentUploads() {
+  try {
+    const data = await api('/api/uploads');
+    const uploads = Array.isArray(data) ? data : (data.uploads || []);
+    const container = document.getElementById('recentUploads');
+
+    if (uploads.length === 0) {
+      container.innerHTML = '<div class="empty-state"><p>No uploads yet</p></div>';
+      return;
+    }
+
+    container.innerHTML = '<div class="media-grid">' +
+      uploads.slice(0, 8).map(u =>
+        `<div class="media-item">
+          <img src="/api/uploads/${u.id}/file" alt="${u.original_name}" loading="lazy"
+               onerror="this.style.display='none'">
+          <div class="media-info">
+            <span class="media-name">${u.original_name}</span>
+          </div>
+        </div>`
+      ).join('') + '</div>';
+    updateUploadBadge(uploads.length);
+  } catch {}
+}
+
+// ==================== MEDIA LIBRARY ====================
+async function loadMediaLibrary() {
+  try {
+    const data = await api('/api/uploads');
+    const uploads = Array.isArray(data) ? data : (data.uploads || []);
+    const grid = document.getElementById('mediaGrid');
+
+    if (uploads.length === 0) {
+      grid.innerHTML = '<div class="empty-state"><p>No uploads yet. Go to Upload tab to add images.</p></div>';
+      document.getElementById('deleteSelectedBtn').style.display = 'none';
+      updateUploadBadge(0);
+      return;
+    }
+
+    grid.innerHTML = uploads.map(u => {
+      const sel = selectedUploadIds.has(u.id);
+      return `<div class="media-item${sel ? ' selected' : ''}" data-id="${u.id}">
+        <div class="media-check" onclick="toggleUploadSelect(${u.id})">${sel ? '✓' : ''}</div>
+        <img src="/api/uploads/${u.id}/file" alt="${u.original_name}" loading="lazy"
+             onerror="this.style.display='none'">
+        <div class="media-info">
+          <span class="media-name">${u.original_name}</span>
+          <div class="media-actions">
+            <button class="btn btn-danger btn-sm" onclick="deleteUpload(${u.id})">✕</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    updateUploadBadge(uploads.length);
+    updateDeleteBtn();
+  } catch (e) {
+    document.getElementById('mediaGrid').innerHTML =
+      `<div class="empty-state"><p>Error loading: ${e.message}</p></div>`;
+  }
+}
+
+function toggleUploadSelect(id) {
+  if (selectedUploadIds.has(id)) selectedUploadIds.delete(id);
+  else selectedUploadIds.add(id);
+  loadMediaLibrary();
+}
+
+function updateDeleteBtn() {
+  const btn = document.getElementById('deleteSelectedBtn');
+  btn.style.display = selectedUploadIds.size > 0 ? 'inline-flex' : 'none';
+  btn.innerHTML = `Delete Selected (${selectedUploadIds.size})`;
+}
+
+async function deleteUpload(id) {
+  if (!confirm('Delete this upload?')) return;
+  try {
+    await api(`/api/uploads/${id}`, { method: 'DELETE' });
+    toast('Upload deleted', 'success');
+    selectedUploadIds.delete(id);
+    loadMediaLibrary();
+    loadDashboard();
+  } catch (e) {
+    toast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+
+async function deleteSelectedUploads() {
+  if (!confirm(`Delete ${selectedUploadIds.size} upload(s)?`)) return;
+  for (const id of selectedUploadIds) {
+    try {
+      await api(`/api/uploads/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      toast(`Failed to delete upload ${id}: ${e.message}`, 'error');
+    }
+  }
+  selectedUploadIds.clear();
+  toast('Selected uploads deleted', 'success');
+  loadMediaLibrary();
+  loadDashboard();
+}
+
+// ==================== GENERATE ====================
+async function loadGenImageOptions() {
+  try {
+    const data = await api('/api/uploads');
+    const uploads = Array.isArray(data) ? data : (data.uploads || []);
+    const sel = document.getElementById('genImageSelect');
+    sel.innerHTML = '<option value="">None (text-to-video)</option>' +
+      uploads.map(u => `<option value="${u.id}">${u.original_name}</option>`).join('');
+
+    // Show image grid for multi-select
+    const grid = document.getElementById('genImageGrid');
+    const opts = document.getElementById('genImageOptions');
+    if (uploads.length > 0) {
+      opts.style.display = 'block';
+      grid.innerHTML = uploads.map(u =>
+        `<div class="media-item" data-id="${u.id}" onclick="toggleGenImage(${u.id})">
+          <img src="/api/uploads/${u.id}/file" alt="${u.original_name}" loading="lazy"
+               onerror="this.style.display='none'">
+          <div class="media-info">
+            <span class="media-name">${u.original_name}</span>
+          </div>
+        </div>`
+      ).join('');
+    } else {
+      opts.style.display = 'none';
+    }
+  } catch {}
+}
+
+let selectedGenImages = new Set();
+
+function toggleGenImage(id) {
+  const items = document.querySelectorAll('#genImageGrid .media-item');
+  items.forEach(item => {
+    if (parseInt(item.dataset.id) === id) {
+      item.classList.toggle('selected');
+    }
+  });
+  if (selectedGenImages.has(id)) selectedGenImages.delete(id);
+  else selectedGenImages.add(id);
+}
+
+async function startGeneration() {
+  const prompt = document.getElementById('genPrompt').value.trim();
+  const mode = document.getElementById('genMode').value;
+  const selectVal = document.getElementById('genImageSelect').value;
+
+  if (!prompt) { toast('Please enter a prompt', 'error'); return; }
+
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Generating...';
+
+  const genResult = document.getElementById('genResult');
+  genResult.style.display = 'block';
+  genResult.innerHTML = '<div class="progress-bar"><div class="progress-fill" style="width:30%;animation:pulse 1.5s infinite"></div></div><p style="color:var(--text-dim);font-size:13px;margin-top:8px">Generation in progress...</p>';
+
+  try {
+    const mediaIds = selectedGenImages.size > 0
+      ? Array.from(selectedGenImages)
+      : (selectVal ? [parseInt(selectVal)] : []);
+
+    let result;
+    if (mode === 'image') {
+      result = await api('/image', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt,
+          media_ids: mediaIds.length > 0 ? mediaIds : undefined,
+          num_images: 1,
+          orientation: 'VERTICAL'
+        })
+      });
+    } else {
+      result = await api('/video', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt,
+          media_ids: mediaIds.length > 0 ? mediaIds : undefined,
+          auto_poll: true,
+          max_poll_attempts: 30,
+          poll_wait_seconds: 3
+        })
+      });
+    }
+
+    genResult.innerHTML = formatGenResult(result, mode);
+    const urls = mode === 'image'
+      ? (result.media_urls || result.image_urls || [])
+      : (result.video_urls || []);
+    api('/api/generations/record', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt,
+        generation_type: mode,
+        input_media_ids: mediaIds.length > 0 ? mediaIds : undefined,
+        result_json: result,
+        video_urls: urls,
+        status: urls.length > 0 ? 'completed' : 'failed'
+      })
+    }).catch(() => {});
+    toast(`${mode === 'image' ? 'Image' : 'Video'} generation completed`, 'success');
+    loadGenerationHistory();
+    loadDashboard();
+
+  } catch (e) {
+    genResult.innerHTML = `<div class="card" style="background:rgba(239,68,68,.1);border-color:var(--error);padding:12px">
+      <p style="color:var(--error);font-size:13px">${e.message}</p></div>`;
+    toast(`Generation failed: ${e.message}`, 'error');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Generate';
+}
+
+function formatGenResult(result, mode) {
+  if (!result || result.success === false) {
+    return `<div class="card" style="background:rgba(239,68,68,.1);border-color:var(--error);padding:12px">
+      <p style="color:var(--error);font-size:13px">${result?.error || result?.detail || 'Generation failed'}</p></div>`;
+  }
+
+  if (mode === 'image') {
+    const urls = result.media_urls || result.image_urls || [];
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+      ${urls.map((url, i) =>
+        `<div style="background:var(--bg);border-radius:6px;padding:8px;text-align:center">
+          <img src="${url}" style="max-width:100%;border-radius:4px;margin-bottom:6px" loading="lazy">
+          <a href="${url}" target="_blank" class="btn btn-sm btn-secondary" download>Download</a>
+        </div>`
+      ).join('')}
+    </div>`;
+  }
+
+  const urls = result.video_urls || [];
+  if (urls.length === 0) {
+    return `<p style="color:var(--text-dim);font-size:13px">Generation completed but no video URLs returned. Status: ${result.status || 'UNKNOWN'}</p>`;
+  }
+
+  return `<div style="display:flex;flex-direction:column;gap:8px">
+    ${urls.map((url, i) =>
+      `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);padding:8px 12px;border-radius:6px">
+        <span style="font-size:12px;color:var(--text-dim)">Video ${i + 1}:</span>
+        <a href="${url}" target="_blank" style="color:var(--primary);font-size:12px;word-break:break-all;flex:1">${url}</a>
+        <a href="/api/download?url=${encodeURIComponent(url)}&name=generation_${Date.now()}_${i}.mp4"
+           class="btn btn-sm btn-primary" target="_blank">Download</a>
+      </div>`
+    ).join('')}
+  </div>`;
+}
+
+// ==================== HISTORY ====================
+async function loadGenerationHistory() {
+  try {
+    const data = await api('/api/generations');
+    const gens = Array.isArray(data) ? data : (data.generations || []);
+    const list = document.getElementById('genList');
+
+    if (gens.length === 0) {
+      list.innerHTML = '<div class="empty-state"><p>No generations yet</p></div>';
+      updateHistoryBadge(0);
+      return;
+    }
+
+    list.innerHTML = gens.map(g => {
+      const status = g.status || 'pending';
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+      const urls = g.video_urls || [];
+      return `<div class="gen-item">
+        <div class="gen-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;color:var(--text-dim)">
+            ${g.generation_type === 'image'
+              ? '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>'
+              : '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>'}
+          </svg>
+        </div>
+        <div class="gen-info">
+          <div class="gen-prompt">${escapeHtml(g.prompt || '(no prompt)')}</div>
+          <div class="gen-meta">${g.generation_type} · ${formatDate(g.created_at)} · ${urls.length} file(s)</div>
+          <div class="gen-expanded" id="genExpand_${g.id}">
+            ${urls.length > 0 ? '<div class="url-list">' + urls.map((url, i) =>
+              `<a href="${url}" target="_blank">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                Video ${i + 1}
+              </a>`
+            ).join('') + '</div>' : ''}
+          </div>
+        </div>
+        <span class="gen-status ${status}">${statusLabel}</span>
+        <div class="gen-actions">
+          <button class="btn btn-sm btn-secondary" onclick="toggleGenExpand(${g.id})">Details</button>
+          ${urls.length > 0 ? `<a href="/api/download?url=${encodeURIComponent(urls[0])}&name=generation_${g.id}.mp4"
+             class="btn btn-sm btn-primary" target="_blank">Download</a>` : ''}
+          <button class="btn btn-sm btn-danger" onclick="deleteGeneration(${g.id})">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    updateHistoryBadge(gens.length);
+  } catch (e) {
+    document.getElementById('genList').innerHTML =
+      `<div class="empty-state"><p>Error loading: ${e.message}</p></div>`;
+  }
+}
+
+function toggleGenExpand(id) {
+  const el = document.getElementById(`genExpand_${id}`);
+  el.classList.toggle('open');
+}
+
+async function deleteGeneration(id) {
+  if (!confirm('Delete this generation?')) return;
+  try {
+    await api(`/api/generations/${id}`, { method: 'DELETE' });
+    toast('Generation deleted', 'success');
+    loadGenerationHistory();
+    loadDashboard();
+  } catch (e) {
+    toast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+
+// Badges
+function updateUploadBadge(n) {
+  const b = document.getElementById('uploadBadge');
+  if (n > 0) { b.style.display = 'inline'; b.textContent = n; }
+  else b.style.display = 'none';
+}
+
+function updateHistoryBadge(n) {
+  const b = document.getElementById('historyBadge');
+  if (n > 0) { b.style.display = 'inline'; b.textContent = n; }
+  else b.style.display = 'none';
+}
+
+// Helpers
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+}
+
+// Drag & drop for upload zone
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => { zone.classList.remove('dragover'); });
+zone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  zone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) {
+    document.getElementById('fileInput').files = e.dataTransfer.files;
+    previewFile({ target: { files: [file] } });
+  }
+});
+
+// Init
+loadDashboard();
+</script>
+</body>
+</html>

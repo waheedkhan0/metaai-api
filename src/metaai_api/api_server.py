@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import time
@@ -11,11 +12,13 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import time as time_module
 
 from metaai_api import MetaAI
+from metaai_api.database import db, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +113,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve static UI files
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
 
 # Exception handler for unhandled exceptions - returns JSON
 @app.exception_handler(Exception)
@@ -260,6 +268,176 @@ _meta_ai_instance: Optional[MetaAI] = None
 async def get_cookies() -> Dict[str, str]:
     await cache.refresh_if_needed()
     return await cache.snapshot()
+
+
+@app.get("/")
+async def root():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/static/index.html")
+
+
+@app.get("/api/cookies")
+async def get_cookies_endpoint():
+    c = await cache.snapshot()
+    return {"cookies": c}
+
+
+class CookieUpdateRequest(BaseModel):
+    cookies: Dict[str, str]
+
+
+@app.put("/api/cookies")
+async def update_cookies(body: CookieUpdateRequest):
+    global _meta_ai_instance
+    new_cookies = body.cookies
+    async with cache._lock:
+        cache._cookies = dict(new_cookies)
+        cache._last_refresh = 0.0
+    try:
+        _meta_ai_instance = MetaAI(cookies=new_cookies, proxy=_get_proxies())
+    except Exception as exc:
+        logger.warning(f"MetaAI re-init after cookie update failed: {exc}")
+    return {"success": True, "message": "Cookies updated"}
+
+
+@app.post("/api/cookies/refresh")
+async def refresh_cookies_endpoint():
+    await cache.refresh_if_needed(force=True)
+    return {"success": True, "message": "Cookies refreshed"}
+
+
+@app.get("/api/uploads")
+async def list_uploads():
+    return {"uploads": db.get_uploads()}
+
+
+@app.post("/api/uploads")
+async def create_upload(file: UploadFile = File(...)):
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Only image files are allowed")
+    ext = Path(file.filename or "image.jpg").suffix or ".jpg"
+    local_name = f"{uuid.uuid4()}{ext}"
+    local_path = DATA_DIR / "uploads" / local_name
+    content = await file.read()
+    with open(local_path, "wb") as f:
+        f.write(content)
+    upload_id = db.add_upload(
+        filename=local_name,
+        original_name=file.filename or local_name,
+        mime_type=file.content_type or "image/jpeg",
+        file_size=len(content),
+    )
+    ai = _meta_ai_instance
+    if ai:
+        try:
+            meta_result = await asyncio.wait_for(
+                run_in_threadpool(ai.upload_image, str(local_path)),
+                timeout=60,
+            )
+            if isinstance(meta_result, dict):
+                media_id = meta_result.get("media_id")
+                session_id = meta_result.get("upload_session_id")
+                if media_id:
+                    db.update_upload_media_id(upload_id, media_id, session_id)
+        except Exception as exc:
+            logger.warning(f"Meta AI upload for {upload_id} failed: {exc}")
+    upload = db.get_upload(upload_id)
+    return upload
+
+
+@app.get("/api/uploads/{upload_id}/file")
+async def get_upload_file(upload_id: int):
+    upload = db.get_upload(upload_id)
+    if not upload:
+        raise HTTPException(404, "Upload not found")
+    filepath = DATA_DIR / "uploads" / upload["filename"]
+    if not filepath.exists():
+        raise HTTPException(404, "File not found on disk")
+    return FileResponse(
+        str(filepath),
+        media_type=upload["mime_type"],
+        filename=upload["original_name"],
+    )
+
+
+@app.delete("/api/uploads/{upload_id}")
+async def delete_upload_endpoint(upload_id: int):
+    ok = db.delete_upload(upload_id)
+    if not ok:
+        raise HTTPException(404, "Upload not found")
+    return {"success": True}
+
+
+@app.get("/api/generations")
+async def list_generations():
+    return {"generations": db.get_generations()}
+
+
+class GenerationCreateRequest(BaseModel):
+    prompt: str
+    generation_type: str = "video"
+    input_media_ids: Optional[list] = None
+
+
+class GenerationRecordRequest(BaseModel):
+    prompt: str
+    generation_type: str = "video"
+    input_media_ids: Optional[list] = None
+    result_json: Optional[dict] = None
+    video_urls: Optional[list] = None
+    status: str = "completed"
+
+
+@app.post("/api/generations")
+async def create_generation(body: GenerationCreateRequest):
+    gen_id = db.add_generation(
+        prompt=body.prompt,
+        generation_type=body.generation_type,
+        input_media_ids=body.input_media_ids,
+        status="pending",
+    )
+    asyncio.create_task(_run_ui_generation_job(gen_id, body))
+    return {"id": gen_id, "status": "pending"}
+
+
+@app.post("/api/generations/record")
+async def record_generation(body: GenerationRecordRequest):
+    gen_id = db.add_generation(
+        prompt=body.prompt,
+        generation_type=body.generation_type,
+        input_media_ids=body.input_media_ids,
+        result_json=body.result_json,
+        video_urls=body.video_urls,
+        status=body.status,
+    )
+    return {"id": gen_id, "status": body.status}
+
+
+@app.delete("/api/generations/{gen_id}")
+async def delete_generation_endpoint(gen_id: int):
+    ok = db.delete_generation(gen_id)
+    if not ok:
+        raise HTTPException(404, "Generation not found")
+    return {"success": True}
+
+
+@app.get("/api/download")
+async def download_file(url: str, name: str = "download.mp4"):
+    try:
+        import requests as sync_requests
+        resp = await run_in_threadpool(
+            lambda: sync_requests.get(url, timeout=30, allow_redirects=True)
+        )
+        resp.raise_for_status()
+        content = resp.content
+        import io
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type=resp.headers.get("content-type", "application/octet-stream"),
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"Download failed: {exc}")
 
 
 @app.on_event("startup")
@@ -675,3 +853,57 @@ async def _refresh_loop() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Background refresh failed: %s", exc)
         await asyncio.sleep(REFRESH_SECONDS)
+
+
+async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> None:
+    logger.info(f"[UI-GEN {gen_id}] Starting {body.generation_type} generation")
+    db.update_generation(gen_id, status="processing")
+    if _meta_ai_instance is None:
+        db.update_generation(gen_id, status="failed")
+        return
+    ai = _meta_ai_instance
+    try:
+        media_ids = body.input_media_ids
+        if media_ids:
+            resolved = []
+            for mid in media_ids:
+                if isinstance(mid, int):
+                    up = db.get_upload(mid)
+                    if up and up.get("media_id"):
+                        resolved.append(up["media_id"])
+                else:
+                    resolved.append(mid)
+            media_ids = resolved if resolved else None
+
+        if body.generation_type == "image":
+            result = await run_in_threadpool(
+                ai.generate_image_new,
+                prompt=body.prompt,
+                orientation="VERTICAL",
+                num_images=1,
+                media_ids=media_ids,
+            )
+        else:
+            result = await run_in_threadpool(
+                ai.generate_video_new,
+                prompt=body.prompt,
+                auto_poll=True,
+                max_poll_attempts=30,
+                poll_wait_seconds=3,
+                media_ids=media_ids,
+            )
+        success = result.get("success", False) if isinstance(result, dict) else False
+        video_urls = result.get("video_urls", []) if isinstance(result, dict) else []
+        media_urls = result.get("media_urls", []) if isinstance(result, dict) else []
+        urls = video_urls or media_urls or []
+        status = "completed" if (success and urls) else "failed"
+        db.update_generation(
+            gen_id,
+            status=status,
+            result_json=result if isinstance(result, dict) else {},
+            video_urls=urls,
+        )
+        logger.info(f"[UI-GEN {gen_id}] Completed with status {status}, {len(urls)} file(s)")
+    except Exception as exc:
+        logger.error(f"[UI-GEN {gen_id}] Failed: {exc}")
+        db.update_generation(gen_id, status="failed")

@@ -21,6 +21,7 @@ recursive-include examples *.py
 
 # Include package data
 recursive-include src/metaai_api *.py
+recursive-include src/metaai_api/static *
 
 # Exclude development and build files
 exclude .gitignore
