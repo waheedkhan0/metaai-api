@@ -131,12 +131,14 @@ class GenerationAPI:
 
             if len(unique) >= 1:
                 newest = unique[0]
-                for key in ("TEXT_TO_IMAGE", "TEXT_TO_VIDEO"):
-                    old = self._doc_ids.get(key)
-                    if old and old != newest:
-                        self._doc_ids[key] = newest
-                        self._doc_id_sources[key] = "page_extract"
-                        self.logger.info(f"doc_id[{key}] updated from page: {old} → {newest}")
+                # Do not auto-override primary generation doc_ids from generic page HTML.
+                # The page contains multiple experiment/stale doc_ids that can reference
+                # GraphQL schemas with mismatched input types (for example rewriteOptions).
+                # Keep stable defaults/env overrides unless explicitly configured.
+                self.logger.debug(
+                    "Skipping auto-override for TEXT_TO_IMAGE/TEXT_TO_VIDEO doc_ids from page extract candidate: %s",
+                    newest,
+                )
 
                 if len(unique) >= 2:
                     alt = unique[1]
@@ -617,8 +619,24 @@ class GenerationAPI:
             raise Exception("Authentication failed - please refresh cookies using auto_refresh_cookies.py")
         
         self.logger.info(f"Video gen response - Status: {response.status_code}, Length: {len(response.text)}, Content-Type: {response.headers.get('Content-Type', 'N/A')}")
-        
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            response_preview = (response.text or "")[:1200]
+            self.logger.error(
+                "Video gen HTTP %s for doc_id=%s conversation_id=%s payload=%s response=%s",
+                response.status_code,
+                payload.get("doc_id"),
+                conversation_id,
+                json.dumps(payload.get("variables", {}), ensure_ascii=False)[:1200],
+                response_preview,
+            )
+            error = requests.HTTPError(
+                f"Video generation HTTP {response.status_code} for doc_id={payload.get('doc_id')} conversation_id={conversation_id}. "
+                f"Response preview: {response_preview}"
+            )
+            error.response = response
+            raise error
+
         result = self._parse_response(response)
         
         if result.get('video_objects'):
@@ -1659,36 +1677,43 @@ class GenerationAPI:
         return video_ids
     
     def _extract_media_ids_from_response(self, response_data: Dict[str, Any]) -> List[str]:
-        """
-        Extract media IDs from initial video generation response.
-        
-        Args:
-            response_data: Response from generate_video containing events
-            
-        Returns:
-            List of media IDs
-        """
-        media_ids = []
-        
+        """Extract video media IDs from diverse response shapes (SSE + GraphQL payloads)."""
+        media_ids: List[str] = []
+        seen: set = set()
+
+        def maybe_add(value: Any) -> None:
+            normalized = self._normalize_media_id(value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                media_ids.append(normalized)
+
+        def walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                # Common video object pattern
+                if 'id' in obj and any(k in obj for k in ('url', 'fallbackUrl', 'thumbnail', 'videoDeliveryResponseResult', 'sourceMedia')):
+                    maybe_add(obj.get('id'))
+
+                # Common nested media keys across GraphQL payloads
+                for key in (
+                    'videos', 'video', 'imagine_video', 'createRouteMedia',
+                    'mediaLibraryFeed', 'nodes', 'edges', 'node', 'sendMessageStream',
+                    'data', 'xfb_kadabra_send_message', 'imagine_media',
+                ):
+                    if key in obj:
+                        walk(obj.get(key))
+
+                # Fallback: recursively scan all values
+                for value in obj.values():
+                    walk(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    walk(item)
+
         try:
-            # Check if we have events in the response
-            events = response_data.get('events', [])
-            
-            for event in events:
-                data = event.get('data', {})
-                stream = data.get('sendMessageStream', {})
-                
-                # Look for videos in the stream
-                videos = stream.get('videos', [])
-                for video in videos:
-                    media_id = video.get('id')
-                    if media_id and media_id not in media_ids:
-                        media_ids.append(media_id)
-                        self.logger.debug(f"Found media ID in response: {media_id}")
-        
+            walk(response_data)
         except Exception as e:
             self.logger.warning(f"Error extracting media IDs from response: {e}")
-        
+
         return media_ids
     
     def poll_media_by_id(self, media_id: str) -> Dict[str, Any]:
