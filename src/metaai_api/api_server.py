@@ -630,6 +630,9 @@ async def video(body: VideoRequest) -> Dict[str, Any]:
             ),
             timeout=REQUEST_TIMEOUT
         )
+        if isinstance(result, dict):
+            rsl = result.get("success"), result.get("status"), len(result.get("video_urls", [])), result.get("error", "")[:100]
+            logger.warning(f"Video gen result → success={rsl[0]} status={rsl[1]} urls={rsl[2]} error={rsl[3]}")
         return cast(Dict[str, Any], result)
     except asyncio.TimeoutError:
         logger.warning(f"Video generation timeout after {REQUEST_TIMEOUT}s for prompt: {body.prompt[:50]}...")
