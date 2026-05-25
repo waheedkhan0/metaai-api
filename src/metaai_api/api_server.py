@@ -962,16 +962,17 @@ async def _run_ui_generation_job(gen_id: int, body: GenerationCreateRequest) -> 
 
 
 # ── Middleware registration (order matters!) ───────────────────────
-# add_middleware inserts at position 0. After reversal, first-added = outermost.
-# We add in outermost-first order so the middleware stack is:
-#   CORS → Session → auth → log → router
-app.add_middleware(
+# add_middleware inserts at position 0. To get execution order from
+# outermost→innermost as CORS→Session→auth→log→router, we add in
+# REVERSE order (innermost first, outermost last) so that after the
+# internal reversal the stack is built correctly:
+app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests)    # 1 - innermost
+app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)  # 2
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400)  # 3
+app.add_middleware(                                                # 4 - outermost
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400)
-app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
-app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests)
